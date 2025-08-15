@@ -1,11 +1,14 @@
 import graphene
 from graphene_django import DjangoObjectType
+from django.core.validators import RegexValidator
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
-from .models import Customer, Product, Order
-from django.core.exceptions import ValidationError
 from django.db.models import Sum
+from .models import Customer, Product, Order
 
+
+# ==== TYPES ====
 class CustomerType(DjangoObjectType):
     class Meta:
         model = Customer
@@ -21,40 +24,54 @@ class OrderType(DjangoObjectType):
         model = Order
         fields = "__all__"
 
-# --- CreateCustomer ---
-class CreateCustomerInput(graphene.InputObjectType):
+
+# ==== INPUT TYPES ====
+class CustomerInput(graphene.InputObjectType):
     name = graphene.String(required=True)
     email = graphene.String(required=True)
     phone = graphene.String(required=False)
 
+class ProductInput(graphene.InputObjectType):
+    name = graphene.String(required=True)
+    price = graphene.Float(required=True)
+    stock = graphene.Int(required=False, default_value=0)
+
+class OrderInput(graphene.InputObjectType):
+    customer_id = graphene.ID(required=True)
+    product_ids = graphene.List(graphene.ID, required=True)
+    order_date = graphene.DateTime(required=False)
+
+
+# ==== MUTATIONS ====
 class CreateCustomer(graphene.Mutation):
     class Arguments:
-        input = CreateCustomerInput(required=True)
+        input = CustomerInput(required=True)
 
     customer = graphene.Field(CustomerType)
     message = graphene.String()
 
     @classmethod
     def mutate(cls, root, info, input):
-        # Validate unique email
         if Customer.objects.filter(email=input.email).exists():
             raise Exception("Email already exists")
 
-        customer = Customer(
-            name=input.name,
-            email=input.email,
-            phone=input.phone
-        )
-        customer.full_clean()  # runs model validations
-        customer.save()
+        # Optional phone validation
+        if input.phone:
+            validator = RegexValidator(
+                regex=r'^(\+\d{10,15}|\d{3}-\d{3}-\d{4})$',
+                message="Phone must be in format +1234567890 or 123-456-7890"
+            )
+            validator(input.phone)
 
+        customer = Customer(name=input.name, email=input.email, phone=input.phone)
+        customer.full_clean()
+        customer.save()
         return CreateCustomer(customer=customer, message="Customer created successfully")
 
 
-# --- BulkCreateCustomers ---
 class BulkCreateCustomers(graphene.Mutation):
     class Arguments:
-        input = graphene.List(CreateCustomerInput, required=True)
+        input = graphene.List(CustomerInput, required=True)
 
     customers = graphene.List(CustomerType)
     errors = graphene.List(graphene.String)
@@ -71,6 +88,13 @@ class BulkCreateCustomers(graphene.Mutation):
                         errors.append(f"Row {idx}: Email already exists")
                         continue
 
+                    if data.phone:
+                        validator = RegexValidator(
+                            regex=r'^(\+\d{10,15}|\d{3}-\d{3}-\d{4})$',
+                            message="Phone must be in format +1234567890 or 123-456-7890"
+                        )
+                        validator(data.phone)
+
                     customer = Customer(name=data.name, email=data.email, phone=data.phone)
                     customer.full_clean()
                     customer.save()
@@ -83,15 +107,9 @@ class BulkCreateCustomers(graphene.Mutation):
         return BulkCreateCustomers(customers=created_customers, errors=errors)
 
 
-# --- CreateProduct ---
-class CreateProductInput(graphene.InputObjectType):
-    name = graphene.String(required=True)
-    price = graphene.Float(required=True)
-    stock = graphene.Int(required=False, default_value=0)
-
 class CreateProduct(graphene.Mutation):
     class Arguments:
-        input = CreateProductInput(required=True)
+        input = ProductInput(required=True)
 
     product = graphene.Field(ProductType)
 
@@ -102,21 +120,15 @@ class CreateProduct(graphene.Mutation):
         if input.stock < 0:
             raise Exception("Stock cannot be negative")
 
-        product = Product(name=input.name, price=input.price, stock=input.stock)
+        product = Product(name=input.name, price=input.price, stock=input.stock or 0)
         product.full_clean()
         product.save()
         return CreateProduct(product=product)
 
 
-# --- CreateOrder ---
-class CreateOrderInput(graphene.InputObjectType):
-    customer_id = graphene.ID(required=True)
-    product_ids = graphene.List(graphene.ID, required=True)
-    order_date = graphene.DateTime(required=False)
-
 class CreateOrder(graphene.Mutation):
     class Arguments:
-        input = CreateOrderInput(required=True)
+        input = OrderInput(required=True)
 
     order = graphene.Field(OrderType)
 
@@ -145,6 +157,8 @@ class CreateOrder(graphene.Mutation):
         order.products.set(products)
         return CreateOrder(order=order)
 
+
+# ==== QUERY & MUTATION ROOT ====
 class Query(graphene.ObjectType):
     customers = graphene.List(CustomerType)
     products = graphene.List(ProductType)
