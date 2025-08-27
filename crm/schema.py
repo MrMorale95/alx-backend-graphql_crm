@@ -8,6 +8,7 @@ from django.db.models import Sum
 from .models import Customer, Product, Order
 from .filters import CustomerFilter, ProductFilter, OrderFilter
 from graphene_django.filter import DjangoFilterConnectionField
+from crm.models import Product
 
 
 # ==== TYPES ====
