@@ -45,7 +45,7 @@ INSTALLED_APPS = [
      "django_filters",
     
     "django_crontab",  # add this
-     "django_celery_beat",
+    "django_celery_beat",
 ]
 
 # Celery settings
