@@ -4,3 +4,6 @@ gql>=3.0.0
 requests>=2.31.0
 celery>=5.3.0
 django-celery-beat>=2.5.0
+redis
+graphene-django
+
